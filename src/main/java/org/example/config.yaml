@@ -1,0 +1,31 @@
+
+accessLog: C:\tiny-server\access.log
+errorLog:  C:\tiny-server\error.log
+
+# Server blocks
+servers:
+  # Main web server
+  - listen: 8080
+    serverName: localhost
+
+    locations:
+      # Serve main website from /var/www/html
+      - path: /
+        type: static
+        root: C:\tiny-server
+        index: index.html
+
+      # Serve images
+      - path: /images
+        type: static
+        root: C:\tiny-server
+
+      # Serve static assets (CSS, JS)
+      - path: /assets
+        type: static
+        root: C:\tiny-server
+
+      # Downloads directory with directory listing enabled
+      - path: /downloads
+        type: static
+        root: C:\tiny-server
