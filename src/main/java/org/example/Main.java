@@ -36,7 +36,7 @@ public class Main {
 
             if (request.requestLine.Method.equals("GET") && request.requestLine.RequestTarget.equals("/")) {
                 // Serve static files
-                serveStaticFile(request, out);
+                //serveStaticFile(request, out);
             }
 
             Response response = Response.ok("Hello, World! from server", "text/plain");
