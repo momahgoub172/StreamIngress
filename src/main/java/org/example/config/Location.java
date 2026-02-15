@@ -10,6 +10,7 @@ public class Location {
     private String type; // "static" or "proxy"
     private String root; // Root directory for static content
     private String index; // Default index file for static content
+    private boolean isDirectoryListingEnabled = false;
 
 
     Location() {}
@@ -55,6 +56,15 @@ public class Location {
         return "proxy".equalsIgnoreCase(type);
     }
 
+    public boolean isDirectoryListingEnabled() {
+        return isDirectoryListingEnabled;
+    }
+
+    public void setDirectoryListingEnabled(boolean directoryListingEnabled) {
+        isDirectoryListingEnabled = directoryListingEnabled;
+    }
+
+
     @Override
     public String toString() {
         return "Location{" +
@@ -64,5 +74,7 @@ public class Location {
                 ", index='" + index + '\'' +
                 '}';
     }
+
+
 
 }
