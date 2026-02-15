@@ -5,7 +5,7 @@ errorLog:  C:\tiny-server\error.log
 # Server blocks
 servers:
   # Main web server
-  - listen: 8080
+  - listen: 8090
     serverName: localhost
 
     locations:
@@ -29,3 +29,4 @@ servers:
       - path: /downloads
         type: static
         root: C:\tiny-server
+        directoryListingEnabled: true
