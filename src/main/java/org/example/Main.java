@@ -23,7 +23,7 @@ import java.util.Map;
 public class Main {
     public static void main(String[] args) throws Exception {
 
-        ServerConfig config = ConfigFileProcessor.load("C:\\Users\\Mmahgoub\\IdeaProjects\\HttpFromTcp\\src\\main\\java\\org\\example\\config.yaml");
+        ServerConfig config = ConfigFileProcessor.load("C:\\Users\\Mmahgoub\\IdeaProjects\\StreamIngress\\src\\main\\java\\org\\example\\config.yaml");
         Server server = config.getServers().get(0);
         int port = server.getListen();
 
