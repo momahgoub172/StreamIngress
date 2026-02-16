@@ -4,6 +4,7 @@ import org.example.config.ConfigFileProcessor;
 import org.example.config.Location;
 import org.example.config.Server;
 import org.example.config.ServerConfig;
+import org.example.handlers.ProxyHandler;
 import org.example.handlers.StaticFileHandler;
 
 import java.io.*;
@@ -47,9 +48,11 @@ public class Main {
                 Location location = findMatchingLocation(server.getLocations(), requestPath);
                 if (location != null && location.isStatic()) {
                     StaticFileHandler.handle(location, requestPath, out, rawOut);
-                } else {
-                    Response response = Response.notFound("Not Found");
-                    response.send(out);
+                } else if (location != null && location.isProxy()) {
+                    String clientIp = socket.getInetAddress().getHostAddress();
+                    System.out.println("Client IP: " + clientIp);
+                    ProxyHandler.handle(location, requestPath, request.requestLine.Method,
+                            request.headers, request.body, out, rawOut, clientIp);
                 }
             } catch (Exception e) {
                 Response response = Response.internalServerError("Internal Server Error");

@@ -30,3 +30,11 @@ servers:
         type: static
         root: C:\tiny-server
         directoryListingEnabled: true
+
+      - path: /test
+        type: proxy
+        proxyUrl : http://localhost:3991/
+
+      - path: /test2
+        type: proxy
+        proxyUrl: http://localhost:3540/

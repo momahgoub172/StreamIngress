@@ -11,6 +11,7 @@ public class Location {
     private String root; // Root directory for static content
     private String index; // Default index file for static content
     private boolean isDirectoryListingEnabled = false;
+    private String proxyUrl;
 
 
     Location() {}
@@ -62,6 +63,14 @@ public class Location {
 
     public void setDirectoryListingEnabled(boolean directoryListingEnabled) {
         isDirectoryListingEnabled = directoryListingEnabled;
+    }
+
+    public String getProxyUrl() {
+        return proxyUrl;
+    }
+
+    public void setProxyUrl(String proxyUrl) {
+        this.proxyUrl = proxyUrl;
     }
 
 
