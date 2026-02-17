@@ -6,6 +6,7 @@ import org.example.config.Server;
 import org.example.config.ServerConfig;
 import org.example.handlers.ProxyHandler;
 import org.example.handlers.StaticFileHandler;
+import org.example.health.HealthChecker;
 
 import java.io.*;
 import java.net.ServerSocket;
@@ -29,6 +30,9 @@ public class Main {
 
         ServerSocket serverSocket = new ServerSocket(port);
         System.out.println("Server listening on port " + port);
+
+        // Start health checks for all proxy backends
+        HealthChecker.start(server.getLocations());
 
         while (true) {
             Socket socket = serverSocket.accept();

@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.example.config.Location;
+import org.example.health.HealthCheckRegistry;
+import org.example.health.HealthChecker;
 
 
 public class ProxyHandler {
@@ -34,6 +36,14 @@ public class ProxyHandler {
     public static void handle(Location location, String requestPath, String method,
                               Map<String, String> headers, String body,
                               PrintWriter out, OutputStream binaryOut, String clientIp) throws IOException {
+
+        //Check health of backend server
+        if (!HealthCheckRegistry.isHealthy(location.getProxyUrl())) {
+            sendError(out, 503, "Service Unavailable", "The backend server is not available.");
+            return;
+        }
+
+
         String backendUrl = buildBackendUrl(location.getProxyUrl(), requestPath, location.getPath());
         System.out.println("  └─ Proxying: " + method + " " + requestPath + " → " + backendUrl);
 
