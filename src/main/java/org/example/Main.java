@@ -25,7 +25,7 @@ public class Main {
     public static void main(String[] args) throws Exception {
 
         ServerConfig config = ConfigFileProcessor.load("C:\\Users\\Mmahgoub\\IdeaProjects\\StreamIngress\\src\\main\\java\\org\\example\\config.yaml");
-        Server server = config.getServers().get(0);
+        Server server = config.getServers().getFirst();
         int port = server.getListen();
 
         ServerSocket serverSocket = new ServerSocket(port);
@@ -63,6 +63,7 @@ public class Main {
                 response.send(out);
             } finally {
                 socket.close();
+                serverSocket.close();
             }
         }
     }

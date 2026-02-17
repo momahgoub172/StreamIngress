@@ -7,13 +7,13 @@ import java.io.PrintWriter;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
+import java.net.URI;
 import java.net.URL;
 import java.util.List;
 import java.util.Map;
 
 import org.example.config.Location;
 import org.example.health.HealthCheckRegistry;
-import org.example.health.HealthChecker;
 
 
 public class ProxyHandler {
@@ -50,7 +50,7 @@ public class ProxyHandler {
         HttpURLConnection connection = null;
         try {
             // Create connection to backend
-            URL url = new URL(backendUrl);
+            URL url = URI.create(backendUrl).toURL();
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod(method);
             connection.setDoInput(true);
@@ -164,7 +164,7 @@ public class ProxyHandler {
      */
     private static String extractHost(String url) {
         try {
-            URL u = new URL(url);
+            URL u = URI.create(url).toURL();
             if (u.getPort() != -1) {
                 return u.getHost() + ":" + u.getPort();
             }

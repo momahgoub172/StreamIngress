@@ -3,6 +3,7 @@ package org.example.health;
 import org.example.config.Location;
 
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.List;
@@ -93,7 +94,7 @@ public class HealthChecker {
         if (proxyUrl == null || proxyUrl.isEmpty()) { return false; }
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(proxyUrl);
+            URL url = URI.create(proxyUrl).toURL();
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(CHECK_CONNECT_TIMEOUT_MS);
