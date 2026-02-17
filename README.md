@@ -32,6 +32,24 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
 
 ---
 
+### Logging
+
+StreamIngress writes **access** and **error** logs to the paths configured in `config.yaml`:
+
+- **Access log** (`accessLog`):
+  - One line per request.
+  - Format: `time=<ISO-8601> ip=<client-ip> method=<HTTP-method> path=<request-path> status=<status-code>`.
+  - Includes static file responses, directory listings, proxy responses, and health-check related 503/504s.
+
+- **Error log** (`errorLog`):
+  - Records server-side errors with full stack traces.
+  - Format: `time=<ISO-8601> level=<SEVERITY> ip=<client-ip> method=<HTTP-method> path=<request-path> error=<exception>`.
+  - Also used by background components such as the health checker when backend checks fail.
+
+Both log files are automatically created (along with parent directories) if they do not exist.
+
+---
+
 ### Configuration
 
 StreamIngress uses a YAML config (currently loaded via Jackson) to define servers and locations.
