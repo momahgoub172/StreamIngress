@@ -25,7 +25,7 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
   - Adds `X-Forwarded-For` and `X-Forwarded-Protocol` style headers.
   - Handles timeouts and connection errors with `502` / `504` HTML error responses.
 
-- **Health checks (planned / in progress)**
+- **Health checks**
   - Background task to periodically check each backend.
   - Central registry to mark backends healthy/unhealthy.
   - Proxy layer can short‑circuit with `503` if a backend is marked down.
