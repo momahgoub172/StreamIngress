@@ -1,6 +1,7 @@
 package org.example.handlers;
 
 import org.example.config.Location;
+import org.example.logging.ServerLogger;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
@@ -49,48 +50,65 @@ public class StaticFileHandler {
     /**
      * Handle a static file request
      */
-    public static void handle(Location location, String requestPath, PrintWriter out,
-                              OutputStream binaryOut) throws IOException {
+    public static void handle(Location location,
+                              String requestPath,
+                              String method,
+                              PrintWriter out,
+                              OutputStream binaryOut,
+                              String clientIp) throws IOException {
         File file = resolveFile(location, requestPath);
         if (!isPathSafe(location.getRoot(), file)) {
+            ServerLogger.logAccess(clientIp, method, requestPath, 403);
+            ServerLogger.logError(clientIp, method, requestPath,
+                    new SecurityException("Forbidden static file access: " + file.getPath()));
             sendError(out, 403, "Forbidden");
             return;
         }
 
         if (!file.exists()) {
+            ServerLogger.logAccess(clientIp, method, requestPath, 404);
             sendError(out, 404, "Not Found");
             return;
         }
 
         // Handle directories
         if (file.isDirectory()) {
-            handleDirectory(location, file, out, binaryOut);
+            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp);
             return;
         }
 
         // Serve file
         serveFile(file, out, binaryOut);
-
+        ServerLogger.logAccess(clientIp, method, requestPath, 200);
     }
 
     /**
      * Handle directory requests
      */
-    private static void handleDirectory(Location location, File directory, PrintWriter out, OutputStream binaryOut) throws IOException {
+    private static void handleDirectory(Location location,
+                                        File directory,
+                                        String requestPath,
+                                        String method,
+                                        PrintWriter out,
+                                        OutputStream binaryOut,
+                                        String clientIp) throws IOException {
         // Serve index file if exists
         // Try to serve index file
         if (location.getIndex() != null && !location.getIndex().isEmpty()) {
             File indexFile = new File(directory, location.getIndex());
             if (indexFile.exists() && indexFile.isFile()) {
                 serveFile(indexFile, out, binaryOut);
+                ServerLogger.logAccess(clientIp, method, requestPath, 200);
                 return;
             }
         }
         // Show directory listing if enabled
         if (location.isDirectoryListingEnabled()) {
             sendDirectoryListing(directory, out);
+            ServerLogger.logAccess(clientIp, method, requestPath, 200);
         } else {
             sendError(out, 403, "Forbidden");
+            ServerLogger.logAccess(clientIp, method, requestPath, 403);
         }
     }
 

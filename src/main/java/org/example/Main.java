@@ -7,6 +7,7 @@ import org.example.config.ServerConfig;
 import org.example.handlers.ProxyHandler;
 import org.example.handlers.StaticFileHandler;
 import org.example.health.HealthChecker;
+import org.example.logging.ServerLogger;
 
 import java.io.*;
 import java.net.ServerSocket;
@@ -28,39 +29,47 @@ public class Main {
         Server server = config.getServers().getFirst();
         int port = server.getListen();
 
+        ServerLogger.init(config.getAccessLog(), config.getErrorLog());
+        ServerLogger.logInfo("[Main] Server starting on port " + port);
+
         // Keep the server socket open for the lifetime of the process.
         // Only client sockets should be closed per request/connection.
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Server listening on port " + port);
 
             // Start health checks for all proxy backends
             HealthChecker.start(server.getLocations());
+            ServerLogger.logInfo("[Main] Server is ready and listening on port " + port);
 
             while (true) {
                 try (Socket socket = serverSocket.accept()) {
-                    System.out.println("Client connected");
+                    String clientIp = socket.getInetAddress().getHostAddress();
+                    ServerLogger.logInfo("[Main] Client connected from " + clientIp);
 
                     BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                     OutputStream rawOut = socket.getOutputStream();
                     PrintWriter out = new PrintWriter(rawOut, true);
 
+                    String method = null;
+                    String requestPath = null;
+
                     try {
                         Request request = parseRequest(in);
-                        String requestPath = request.requestLine.RequestTarget;
+                        method = request.requestLine.Method;
+                        requestPath = request.requestLine.RequestTarget;
                         // Strip query string if present
                         int q = requestPath.indexOf('?');
                         if (q >= 0) requestPath = requestPath.substring(0, q);
 
                         Location location = findMatchingLocation(server.getLocations(), requestPath);
                         if (location != null && location.isStatic()) {
-                            StaticFileHandler.handle(location, requestPath, out, rawOut);
+                            StaticFileHandler.handle(location, requestPath, method, out, rawOut, clientIp);
                         } else if (location != null && location.isProxy()) {
-                            String clientIp = socket.getInetAddress().getHostAddress();
-                            System.out.println("Client IP: " + clientIp);
-                            ProxyHandler.handle(location, requestPath, request.requestLine.Method,
+                            ProxyHandler.handle(location, requestPath, method,
                                     request.headers, request.body, out, rawOut, clientIp);
                         }
                     } catch (Exception e) {
+                        ServerLogger.logError(clientIp, method, requestPath, e);
+                        ServerLogger.logAccess(clientIp, method, requestPath, 500);
                         Response response = Response.internalServerError("Internal Server Error");
                         response.send(out);
                     }

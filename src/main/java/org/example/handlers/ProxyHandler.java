@@ -14,6 +14,7 @@ import java.util.Map;
 
 import org.example.config.Location;
 import org.example.health.HealthCheckRegistry;
+import org.example.logging.ServerLogger;
 
 
 public class ProxyHandler {
@@ -39,13 +40,16 @@ public class ProxyHandler {
 
         //Check health of backend server
         if (!HealthCheckRegistry.isHealthy(location.getProxyUrl())) {
+            ServerLogger.logAccess(clientIp, method, requestPath, 503);
+            ServerLogger.logError(clientIp, method, requestPath,
+                    new IllegalStateException("Backend not healthy: " + location.getProxyUrl()));
             sendError(out, 503, "Service Unavailable", "The backend server is not available.");
             return;
         }
 
 
         String backendUrl = buildBackendUrl(location.getProxyUrl(), requestPath, location.getPath());
-        System.out.println("  └─ Proxying: " + method + " " + requestPath + " → " + backendUrl);
+        ServerLogger.logInfo("[ProxyHandler] Proxying: " + method + " " + requestPath + " → " + backendUrl);
 
         HttpURLConnection connection = null;
         try {
@@ -74,7 +78,7 @@ public class ProxyHandler {
             // Get response from backend after processing request
             int statusCode = connection.getResponseCode();
             String statusMessage = connection.getResponseMessage();
-            System.out.println("     Backend responded: " + statusCode + " " + statusMessage);
+            ServerLogger.logInfo("[ProxyHandler] Backend responded: " + statusCode + " " + statusMessage);
 
             // Send response status
             out.print("HTTP/1.1 " + statusCode + " " + statusMessage + "\r\n");
@@ -109,12 +113,16 @@ public class ProxyHandler {
                 //responseStream.close();
             }
 
+            ServerLogger.logAccess(clientIp, method, requestPath, statusCode);
+
         } catch (SocketTimeoutException e) {
-            System.err.println("     ❌ Proxy timeout: " + e.getMessage());
+            ServerLogger.logError(clientIp, method, requestPath, e);
+            ServerLogger.logAccess(clientIp, method, requestPath, 504);
             sendError(out, 504, "Gateway Timeout",
                     "The backend server did not respond in time.");
         } catch (IOException e) {
-            System.err.println("     ❌ Proxy error: " + e.getMessage());
+            ServerLogger.logError(clientIp, method, requestPath, e);
+            ServerLogger.logAccess(clientIp, method, requestPath, 502);
             sendError(out, 502, "Bad Gateway",
                     "Could not connect to backend server: " + location.getProxyUrl());
         }

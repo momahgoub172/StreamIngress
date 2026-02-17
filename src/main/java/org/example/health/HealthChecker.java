@@ -1,6 +1,7 @@
 package org.example.health;
 
 import org.example.config.Location;
+import org.example.logging.ServerLogger;
 
 import java.net.HttpURLConnection;
 import java.net.URI;
@@ -34,7 +35,7 @@ public class HealthChecker {
         if (scheduler != null) {
             return;
         }
-
+        ServerLogger.logInfo("[HealthChecker] Starting...");
         Set<String> proxyUrls = new HashSet<>();
 
         if (locations != null) {
@@ -50,7 +51,7 @@ public class HealthChecker {
         }
 
         if (proxyUrls.isEmpty()) {
-            System.out.println("[HealthChecker] No proxy backends found, skipping health checks.");
+            ServerLogger.logInfo("[HealthChecker] No proxy backends found, skipping health checks.");
             return;
         }
 
@@ -61,7 +62,7 @@ public class HealthChecker {
             return t;
         });
 
-        System.out.println("[HealthChecker] Starting health checks for backends: " + proxyUrls);
+        ServerLogger.logInfo("[HealthChecker] Starting health checks for backends: " + proxyUrls);
 
         scheduler.scheduleAtFixedRate(() -> {
             for (String proxyUrl : HealthCheckRegistry.getAllProxyUrls()) {
@@ -69,7 +70,7 @@ public class HealthChecker {
                 boolean previousHealthy = HealthCheckRegistry.isHealthy(proxyUrl);
                 if (isHealthy != previousHealthy) {
                     HealthCheckRegistry.setHealthy(proxyUrl, isHealthy);
-                    System.out.println("[HealthChecker] Backend " + proxyUrl + " is " + (isHealthy ? "healthy" : "unhealthy"));
+                    ServerLogger.logInfo("[HealthChecker] Backend " + proxyUrl + " is " + (isHealthy ? "healthy" : "unhealthy"));
                 }
             }
         }, 0, CHECK_INTERVAL_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
@@ -82,7 +83,7 @@ public class HealthChecker {
         if (scheduler != null) {
             scheduler.shutdownNow();
             scheduler = null;
-            System.out.println("[HealthChecker] Stopped.");
+            ServerLogger.logInfo("[HealthChecker] Stopped.");
         }
     }
 
@@ -103,6 +104,7 @@ public class HealthChecker {
             int responseCode = connection.getResponseCode();
             return responseCode >= 200 && responseCode < 400;
         } catch (Exception e) {
+            ServerLogger.logError(e);
             return false;
         } finally {
             if (connection != null) {
