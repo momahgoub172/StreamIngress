@@ -13,6 +13,7 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
 - **Static file server**
   - Serves files from a configured `root` directory.
   - Optional `index` file per location (e.g. `index.html`).
+  - Supports `GET` and `HEAD` for static content.
   - Optional **directory listing** (`directoryListingEnabled: true`).
   - Basic security: canonical path resolution + directory traversal protection.
   - Sends `Content-Type`, `Content-Length`, `Last-Modified`, and `Cache-Control` headers.
@@ -131,7 +132,7 @@ Key ideas:
   - Support multiple backends per location and load balancing.
 
 - **Static server enhancements**
-  - `HEAD` support, conditional requests (`If-Modified-Since`), range requests.
+  - Conditional requests (`If-Modified-Since`), range requests.
 
 - **Proxy enhancements**
   - Better `X-Forwarded-*` handling.
