@@ -56,6 +56,9 @@ public class StaticFileHandler {
                               PrintWriter out,
                               OutputStream binaryOut,
                               String clientIp) throws IOException {
+
+        boolean isHeadRequest = method.equalsIgnoreCase("HEAD");
+
         File file = resolveFile(location, requestPath);
         if (!isPathSafe(location.getRoot(), file)) {
             ServerLogger.logAccess(clientIp, method, requestPath, 403);
@@ -73,12 +76,12 @@ public class StaticFileHandler {
 
         // Handle directories
         if (file.isDirectory()) {
-            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp);
+            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp, isHeadRequest);
             return;
         }
 
         // Serve file
-        serveFile(file, out, binaryOut);
+        serveFile(file, out, binaryOut, isHeadRequest);
         ServerLogger.logAccess(clientIp, method, requestPath, 200);
     }
 
@@ -91,20 +94,21 @@ public class StaticFileHandler {
                                         String method,
                                         PrintWriter out,
                                         OutputStream binaryOut,
-                                        String clientIp) throws IOException {
+                                        String clientIp,
+                                        boolean isHeadRequest) throws IOException {
         // Serve index file if exists
         // Try to serve index file
         if (location.getIndex() != null && !location.getIndex().isEmpty()) {
             File indexFile = new File(directory, location.getIndex());
             if (indexFile.exists() && indexFile.isFile()) {
-                serveFile(indexFile, out, binaryOut);
+                serveFile(indexFile, out, binaryOut, isHeadRequest);
                 ServerLogger.logAccess(clientIp, method, requestPath, 200);
                 return;
             }
         }
         // Show directory listing if enabled
         if (location.isDirectoryListingEnabled()) {
-            sendDirectoryListing(directory, out);
+            sendDirectoryListing(directory, out,isHeadRequest);
             ServerLogger.logAccess(clientIp, method, requestPath, 200);
         } else {
             sendError(out, 403, "Forbidden");
@@ -112,7 +116,9 @@ public class StaticFileHandler {
         }
     }
 
-    private static void sendDirectoryListing(File directory, PrintWriter out) throws IOException {
+    private static void sendDirectoryListing(File directory, PrintWriter out, boolean isHeadRequest) throws IOException {
+
+
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html>\n");
         html.append("<html>\n<head>\n");
@@ -140,8 +146,11 @@ public class StaticFileHandler {
         out.print("HTTP/1.1 200 OK\r\n");
         out.print("Content-Type: text/html\r\n");
         out.print("Content-Length: " + content.length + "\r\n");
+        out.print("Last-Modified: " + formatHttpDate(directory.lastModified()) + "\r\n");
         out.print("\r\n");
-        out.print(html);
+        if (!isHeadRequest) {
+            out.print(html);
+        }
         out.flush();
     }
 
@@ -154,7 +163,7 @@ public class StaticFileHandler {
         return (bytes / (1024 * 1024)) + " MB";
     }
 
-    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut) throws IOException {
+    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut ,boolean isHeadRequest) throws IOException {
         String mimeType = getMimeType(file.getName());
         long fileSize = file.length();
         long lastModified = file.lastModified();
@@ -167,16 +176,19 @@ public class StaticFileHandler {
         out.print("\r\n");
         out.flush();
 
-        // Send file content
-        try (FileInputStream fis = new FileInputStream(file)) {
-            byte[] buffer = new byte[8192]; //TODO : Make this configurable and investigate why it is 8192
-            int bytesRead;
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                binaryOut.write(buffer, 0, bytesRead);
+
+        if (!isHeadRequest) {
+            // Send file content
+            try (FileInputStream fis = new FileInputStream(file)) {
+                byte[] buffer = new byte[8192]; //TODO : Make this configurable and investigate why it is 8192
+                int bytesRead;
+                while ((bytesRead = fis.read(buffer)) != -1) {
+                    binaryOut.write(buffer, 0, bytesRead);
+                }
+                binaryOut.flush();
             }
-            binaryOut.flush();
+            System.out.println("Served: " + file.getPath() + " (" + fileSize + " bytes)");
         }
-        System.out.println("Served: " + file.getPath() + " (" + fileSize + " bytes)");
     }
 
     /**
@@ -202,36 +214,36 @@ public class StaticFileHandler {
     }
 
     /**
-         * Send error response
-         */
-        private static void sendError (PrintWriter out,int statusCode, String message){
-            String html = "<html><body><h1>" + statusCode + " " + message + "</h1></body></html>";
-            byte[] content = html.getBytes();
+     * Send error response
+     */
+    private static void sendError (PrintWriter out,int statusCode, String message){
+        String html = "<html><body><h1>" + statusCode + " " + message + "</h1></body></html>";
+        byte[] content = html.getBytes();
 
-            out.print("HTTP/1.1 " + statusCode + " " + message + "\r\n");
-            out.print("Content-Type: text/html\r\n");
-            out.print("Content-Length: " + content.length + "\r\n");
-            out.print("\r\n");
-            out.print(html);
-            out.flush();
-        }
+        out.print("HTTP/1.1 " + statusCode + " " + message + "\r\n");
+        out.print("Content-Type: text/html\r\n");
+        out.print("Content-Length: " + content.length + "\r\n");
+        out.print("\r\n");
+        out.print(html);
+        out.flush();
+    }
 
-        /**
-         * Resolve file path safely
-         */
-        private static File resolveFile (Location location, String relativePath) throws IOException {
-            File root = new File(location.getRoot()).getCanonicalFile();
-            return new File(root, relativePath).getCanonicalFile();
-        }
+    /**
+     * Resolve file path safely
+     */
+    private static File resolveFile (Location location, String relativePath) throws IOException {
+        File root = new File(location.getRoot()).getCanonicalFile();
+        return new File(root, relativePath).getCanonicalFile();
+    }
 
-        /**
-         * Security: Check if the resolved path is inside the root directory
-         */
-        private static boolean isPathSafe (String rootPath, File resolvedFile) throws IOException {
-            File root = new File(rootPath).getCanonicalFile();
-            String canonicalPath = resolvedFile.getCanonicalPath();
-            String rootPathCanonical = root.getCanonicalPath();
-            return canonicalPath.startsWith(rootPathCanonical);
-        }
+    /**
+     * Security: Check if the resolved path is inside the root directory
+     */
+    private static boolean isPathSafe (String rootPath, File resolvedFile) throws IOException {
+        File root = new File(rootPath).getCanonicalFile();
+        String canonicalPath = resolvedFile.getCanonicalPath();
+        String rootPathCanonical = root.getCanonicalPath();
+        return canonicalPath.startsWith(rootPathCanonical);
+    }
 
 }
