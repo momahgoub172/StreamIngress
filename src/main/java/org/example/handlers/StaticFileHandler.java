@@ -4,7 +4,12 @@ import org.example.config.Location;
 import org.example.logging.ServerLogger;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.attribute.FileTime;
 import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
@@ -55,7 +60,8 @@ public class StaticFileHandler {
                               String method,
                               PrintWriter out,
                               OutputStream binaryOut,
-                              String clientIp) throws IOException {
+                              String clientIp,
+                              Map<String, String> headers) throws IOException {
 
         boolean isHeadRequest = method.equalsIgnoreCase("HEAD");
 
@@ -76,12 +82,12 @@ public class StaticFileHandler {
 
         // Handle directories
         if (file.isDirectory()) {
-            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp, isHeadRequest);
+            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp, isHeadRequest, headers);
             return;
         }
 
         // Serve file
-        serveFile(file, out, binaryOut, isHeadRequest);
+        serveFile(file, out, binaryOut, isHeadRequest, headers);
         ServerLogger.logAccess(clientIp, method, requestPath, 200);
     }
 
@@ -95,20 +101,21 @@ public class StaticFileHandler {
                                         PrintWriter out,
                                         OutputStream binaryOut,
                                         String clientIp,
-                                        boolean isHeadRequest) throws IOException {
+                                        boolean isHeadRequest,
+                                        Map<String, String> headers) throws IOException {
         // Serve index file if exists
         // Try to serve index file
         if (location.getIndex() != null && !location.getIndex().isEmpty()) {
             File indexFile = new File(directory, location.getIndex());
             if (indexFile.exists() && indexFile.isFile()) {
-                serveFile(indexFile, out, binaryOut, isHeadRequest);
+                serveFile(indexFile, out, binaryOut, isHeadRequest, headers);
                 ServerLogger.logAccess(clientIp, method, requestPath, 200);
                 return;
             }
         }
         // Show directory listing if enabled
         if (location.isDirectoryListingEnabled()) {
-            sendDirectoryListing(directory, out,isHeadRequest);
+            sendDirectoryListing(directory, out,isHeadRequest, headers);
             ServerLogger.logAccess(clientIp, method, requestPath, 200);
         } else {
             sendError(out, 403, "Forbidden");
@@ -116,8 +123,39 @@ public class StaticFileHandler {
         }
     }
 
-    private static void sendDirectoryListing(File directory, PrintWriter out, boolean isHeadRequest) throws IOException {
+    private static void sendDirectoryListing(File directory, PrintWriter out, boolean isHeadRequest, Map<String, String> headers) throws IOException {
 
+
+        // Check 'If-Modified-Since' header and handle conditional-get for 304 Not Modified
+        String ifModifiedSince = headers.get("If-Modified-Since");
+        if (ifModifiedSince != null) {
+            try {
+                // HTTP/1.1 date format: "EEE, dd MMM yyyy HH:mm:ss zzz"
+                DateTimeFormatter formatter = DateTimeFormatter.RFC_1123_DATE_TIME;
+                // Parse the header date as an Instant
+                ZonedDateTime clientDate = ZonedDateTime.parse(ifModifiedSince, formatter);
+                FileTime fileTime = Files.getLastModifiedTime(directory.toPath());
+                long fileLastModifiedMillis = fileTime.toMillis();
+                long clientMillis = clientDate.toInstant().toEpochMilli();
+
+                // RFC says: If the requested resource has not been modified since the time specified in this field, return 304.
+                // 304 responses must NOT include a message body.
+                if (fileLastModifiedMillis / 1000 <= clientMillis / 1000) {
+                    out.print("HTTP/1.1 304 Not Modified\r\n");
+                    out.print("Date: " + formatter.format(ZonedDateTime.now(ZoneId.of("GMT"))) + "\r\n");
+                    out.print("Last-Modified: " + formatHttpDate(directory.lastModified()) + "\r\n");
+                    out.print("\r\n");
+                    out.flush();
+                    ServerLogger.logAccess(headers.get("Client-IP"), headers.get("Method"), headers.get("Request-Target"), 304);
+                    return;
+                }
+            } catch (Exception e) {
+                ServerLogger.logError(headers.get("Client-IP"), headers.get("Method"), headers.get("Request-Target"), e);
+                ServerLogger.logAccess(headers.get("Client-IP"), headers.get("Method"), headers.get("Request-Target"), 500);
+                sendError(out, 500, "Internal Server Error");
+                return;
+            }
+        }
 
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html>\n");
@@ -163,7 +201,38 @@ public class StaticFileHandler {
         return (bytes / (1024 * 1024)) + " MB";
     }
 
-    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut ,boolean isHeadRequest) throws IOException {
+    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut ,boolean isHeadRequest, Map<String, String> headers) throws IOException {
+
+
+        //check last modified header// Check 'If-Modified-Since' header and handle conditional-get for 304 Not Modified
+        String ifModifiedSince = headers.get("If-Modified-Since");
+        if (ifModifiedSince != null) {
+            try {
+                // HTTP/1.1 date format: "EEE, dd MMM yyyy HH:mm:ss zzz"
+                DateTimeFormatter formatter = DateTimeFormatter.RFC_1123_DATE_TIME;
+                // Parse the header date as an Instant
+                ZonedDateTime clientDate = ZonedDateTime.parse(ifModifiedSince, formatter);
+                FileTime fileTime = Files.getLastModifiedTime(file.toPath());
+                long fileLastModifiedMillis = fileTime.toMillis();
+                long clientMillis = clientDate.toInstant().toEpochMilli();
+
+                // RFC says: If the requested resource has not been modified since the time specified in this field, return 304
+                if (fileLastModifiedMillis / 1000 <= clientMillis / 1000) {
+                    out.print("HTTP/1.1 304 Not Modified\r\n");
+                    out.print("Date: " + formatter.format(ZonedDateTime.now(ZoneId.of("GMT"))) + "\r\n");
+                    out.print("\r\n");
+                    out.flush();
+                    ServerLogger.logAccess(headers.get("Client-IP"),headers.get("Method"),headers.get("Request-Target"), 304);
+                    return;
+                }
+            } catch (Exception e) {
+                ServerLogger.logError(headers.get("Client-IP"), headers.get("Method"), headers.get("Request-Target"), e);
+                ServerLogger.logAccess(headers.get("Client-IP"), headers.get("Method"), headers.get("Request-Target"), 500);
+                sendError(out, 500, "Internal Server Error");
+                return;
+            }
+        }
+
         String mimeType = getMimeType(file.getName());
         long fileSize = file.length();
         long lastModified = file.lastModified();

@@ -17,6 +17,7 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
   - Optional **directory listing** (`directoryListingEnabled: true`).
   - Basic security: canonical path resolution + directory traversal protection.
   - Sends `Content-Type`, `Content-Length`, `Last-Modified`, and `Cache-Control` headers.
+  - Supports conditional requests with `If-Modified-Since` / `304 Not Modified` for files and directory listings.
 
 - **Reverse proxy**
   - Forwards requests to configured `proxyUrl`.
@@ -132,7 +133,7 @@ Key ideas:
   - Support multiple backends per location and load balancing.
 
 - **Static server enhancements**
-  - Conditional requests (`If-Modified-Since`), range requests.
+  - Range requests.
 
 - **Proxy enhancements**
   - Better `X-Forwarded-*` handling.

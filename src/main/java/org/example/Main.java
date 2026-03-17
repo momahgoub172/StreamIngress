@@ -25,7 +25,7 @@ import java.util.Map;
 public class Main {
     public static void main(String[] args) throws Exception {
 
-        ServerConfig config = ConfigFileProcessor.load("C:\\Users\\Mmahgoub\\IdeaProjects\\StreamIngress\\src\\main\\java\\org\\example\\config.yaml");
+        ServerConfig config = ConfigFileProcessor.load("/home/goba/programming/projects/java/StreamIngress/src/main/java/org/example/config.yaml");
         Server server = config.getServers().getFirst();
         int port = server.getListen();
 
@@ -62,7 +62,7 @@ public class Main {
 
                         Location location = findMatchingLocation(server.getLocations(), requestPath);
                         if (location != null && location.isStatic()) {
-                            StaticFileHandler.handle(location, requestPath, method, out, rawOut, clientIp);
+                            StaticFileHandler.handle(location, requestPath, method, out, rawOut, clientIp,request.headers);
                         } else if (location != null && location.isProxy()) {
                             ProxyHandler.handle(location, requestPath, method,
                                     request.headers, request.body, out, rawOut, clientIp);
