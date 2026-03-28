@@ -9,6 +9,9 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
 - **HTTP from raw TCP**
   - Listens on a TCP `ServerSocket`.
   - Parses HTTP request line, headers, and body manually.
+  - **Virtual threads** for handling concurrent connections.
+  - **HTTP keep-alive** support (HTTP/1.1 keep-alive by default, HTTP/1.0 close by default).
+  - Per-connection **request limits** and **socket timeouts** to prevent resource exhaustion.
 
 - **Static file server**
   - Serves files from a configured `root` directory.
@@ -18,6 +21,7 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
   - Basic security: canonical path resolution + directory traversal protection.
   - Sends `Content-Type`, `Content-Length`, `Last-Modified`, and `Cache-Control` headers.
   - Supports conditional requests with `If-Modified-Since` / `304 Not Modified` for files and directory listings.
+  - Proper `Connection` header handling for keep-alive support.
 
 - **Reverse proxy**
   - Forwards requests to configured `proxyUrl`.
@@ -26,6 +30,7 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
   - Streams backend response headers and body back to the client.
   - Adds `X-Forwarded-For` and `X-Forwarded-Protocol` style headers.
   - Handles timeouts and connection errors with `502` / `504` HTML error responses.
+  - Proper `Connection` header handling for keep-alive support.
 
 - **Health checks**
   - Background task to periodically check each backend.
@@ -119,10 +124,11 @@ Key ideas:
 
    > Note: currently the config path is hard‑coded in `Main`, so adjust it or refactor to read from a relative path/CLI argument.
 
-3. **Test**
+   3. **Test**
 
-   - Open `http://localhost:8090/` for static content (based on your config).
-   - Call `http://localhost:8090/test/...` or `/test2/...` to hit proxied backends.
+      - Open `http://localhost:8090/` for static content (based on your config).
+      - Call `http://localhost:8090/test/...` or `/test2/...` to hit proxied backends.
+      - Requests to unmatched locations return `404 Not Found`.
 
 ---
 
@@ -134,6 +140,7 @@ Key ideas:
 
 - **Static server enhancements**
   - Range requests.
+  - Configurable buffer sizes.
 
 - **Proxy enhancements**
   - Better `X-Forwarded-*` handling.

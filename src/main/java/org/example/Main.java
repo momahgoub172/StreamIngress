@@ -15,17 +15,16 @@ import java.net.Socket;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
+import java.util.concurrent.Executors;
 
 //TODO : Replace Jacson --> Implement DSL for configuration and implement Lexer, Parser, AST .........
 //TODO : Refactor Main.java
 
-
-
 public class Main {
     public static void main(String[] args) throws Exception {
 
-        ServerConfig config = ConfigFileProcessor.load("/home/goba/programming/projects/java/StreamIngress/src/main/java/org/example/config.yaml");
+        ServerConfig config = ConfigFileProcessor
+                .load("/home/goba/programming/projects/java/StreamIngress/src/main/java/org/example/config.yaml");
         Server server = config.getServers().getFirst();
         int port = server.getListen();
 
@@ -35,61 +34,112 @@ public class Main {
         // Keep the server socket open for the lifetime of the process.
         // Only client sockets should be closed per request/connection.
         try (ServerSocket serverSocket = new ServerSocket(port)) {
+            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                while (true) {
+                    Socket socket = serverSocket.accept();
+                    executor.submit(() -> {
+                        try (socket) {
+                            // TODO: Make this configurable
+                            socket.setSoTimeout(5_000);
 
-            // Start health checks for all proxy backends
-            HealthChecker.start(server.getLocations());
-            ServerLogger.logInfo("[Main] Server is ready and listening on port " + port);
+                            String clientIp = socket.getInetAddress().getHostAddress();
+                            ServerLogger.logInfo("[Main] Client connected from " + clientIp);
 
-            while (true) {
-                try (Socket socket = serverSocket.accept()) {
-                    String clientIp = socket.getInetAddress().getHostAddress();
-                    ServerLogger.logInfo("[Main] Client connected from " + clientIp);
+                            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                            OutputStream rawOut = socket.getOutputStream();
+                            PrintWriter out = new PrintWriter(new BufferedOutputStream(rawOut), true);
 
-                    BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                    OutputStream rawOut = socket.getOutputStream();
-                    PrintWriter out = new PrintWriter(rawOut, true);
 
-                    String method = null;
-                    String requestPath = null;
+                            //TODO : make it configurable
+                            var maxRequests = 100;  // prevent one client hogging the connection forever
+                            var requestsCount = 0;
 
-                    try {
-                        Request request = parseRequest(in);
-                        method = request.requestLine.Method;
-                        requestPath = request.requestLine.RequestTarget;
-                        // Strip query string if present
-                        int q = requestPath.indexOf('?');
-                        if (q >= 0) requestPath = requestPath.substring(0, q);
+                            while (requestsCount < maxRequests) {
 
-                        Location location = findMatchingLocation(server.getLocations(), requestPath);
-                        if (location != null && location.isStatic()) {
-                            StaticFileHandler.handle(location, requestPath, method, out, rawOut, clientIp,request.headers);
-                        } else if (location != null && location.isProxy()) {
-                            ProxyHandler.handle(location, requestPath, method,
-                                    request.headers, request.body, out, rawOut, clientIp);
+                                String method = null;
+                                String requestPath = null;
+                                boolean shouldClose = true;
+                                try {
+                                    Request request = parseRequest(in);
+                                    if (request == null) {
+                                        System.out.println("[debug] null request, closing connection");
+                                        break;
+                                    }
+                                    System.out.println("[debug] got request #" + requestsCount + " " + request.requestLine.Method + " " + request.requestLine.RequestTarget);
+
+                                    method = request.requestLine.Method;
+                                    requestPath = request.requestLine.RequestTarget;
+                                    int q = requestPath.indexOf('?');
+                                    if (q >= 0)
+                                        requestPath = requestPath.substring(0, q);
+
+                                    shouldClose = shouldCloseConnection(request);
+                                    requestsCount++;
+
+                                    Location location = findMatchingLocation(server.getLocations(), requestPath);
+                                    if (location != null && location.isStatic()) {
+                                        StaticFileHandler.handle(location, requestPath, method, out, rawOut, clientIp,
+                                                request.headers,shouldClose);
+                                    } else if (location != null && location.isProxy()) {
+                                        ProxyHandler.handle(location, requestPath, method,
+                                                request.headers, request.body, out, rawOut, clientIp,shouldClose);
+                                    }
+                                    else {
+                                        // no matching location → 404
+                                        sendNotFound(out, shouldClose);
+                                    }
+                                }
+                                catch (java.net.SocketTimeoutException e) {
+                                    break; // idle timeout, close quietly
+                                } 
+                                catch (Exception e) {
+                                    ServerLogger.logError(clientIp, method, requestPath, e);
+                                    ServerLogger.logAccess(clientIp, method, requestPath, 500);
+                                    Response response = Response.internalServerError("Internal Server Error");
+                                    response.send(out);
+                                    break;
+                                }
+
+                            }
+
+                        } catch (IOException e) {
+                            ServerLogger.logError(null, null, null, e);
                         }
-                    } catch (Exception e) {
-                        ServerLogger.logError(clientIp, method, requestPath, e);
-                        ServerLogger.logAccess(clientIp, method, requestPath, 500);
-                        Response response = Response.internalServerError("Internal Server Error");
-                        response.send(out);
-                    }
+                    });
                 }
             }
         }
     }
 
+
+    private static void sendNotFound(PrintWriter out, boolean shouldClose) {
+        String html = "<html><body><h1>404 Not Found</h1></body></html>";
+        out.print("HTTP/1.1 404 Not Found\r\n");
+        out.print("Content-Type: text/html\r\n");
+        out.print("Content-Length: " + html.getBytes().length + "\r\n");
+        out.print("Connection: " + (shouldClose ? "close" : "keep-alive") + "\r\n");
+        out.print("\r\n");
+        out.print(html);
+        out.flush();
+    }
+
     /**
-     * Find the location that best matches the request path (longest path prefix wins).
+     * Find the location that best matches the request path (longest path prefix
+     * wins).
      */
     private static Location findMatchingLocation(List<Location> locations, String requestPath) {
         Location best = null;
         int bestLen = -1;
         for (Location loc : locations) {
             String path = loc.getPath();
-            if (path == null) continue;
-            if (!requestPath.startsWith(path)) continue;
-            // Require exact match or path boundary (e.g. "/" matches "/", "/images" matches "/images" and "/images/...")
-            if (path.length() > bestLen && (path.equals("/") || path.length() == requestPath.length() || requestPath.charAt(path.length()) == '/')) {
+            if (path == null)
+                continue;
+            if (!requestPath.startsWith(path))
+                continue;
+            // Require exact match or path boundary (e.g. "/" matches "/", "/images" matches
+            // "/images" and "/images/...")
+            if (path.length() > bestLen && (path.equals("/") || path.length() == requestPath.length()
+                    || requestPath.charAt(path.length()) == '/')) {
                 best = loc;
                 bestLen = path.length();
             }
@@ -101,7 +151,7 @@ public class Main {
         // Step 1: Read the request line (first line)
         String firstLine = in.readLine();
         if (firstLine == null || firstLine.isEmpty()) {
-            throw new Exception("Invalid HTTP request: empty request line");
+            return null; // client closed or idle — was: throw new Exception(...)
         }
 
         String[] requestLineParts = firstLine.split(" ");
@@ -154,5 +204,18 @@ public class Main {
         }
 
         return new Request(requestLine, headersMap, body);
+    }
+
+    private static boolean shouldCloseConnection(Request request) {
+        var httpVersion = request.requestLine.HttpVersion;
+        var connection = request.headers.getOrDefault("Connection", "").toLowerCase();
+        if (httpVersion.equals("HTTP/1.1")) {
+            // HTTP/1.1 defaults to keep-alive unless client says close
+            return connection.equals("close");
+        } else {
+            // HTTP/1.0 defaults to close unless client says keep-alive
+            return !connection.contains("keep-alive");
+        }
+
     }
 }

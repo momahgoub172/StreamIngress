@@ -54,6 +54,7 @@ public class StaticFileHandler {
 
     /**
      * Handle a static file request
+     * @param shouldClose 
      */
     public static void handle(Location location,
                               String requestPath,
@@ -61,7 +62,8 @@ public class StaticFileHandler {
                               PrintWriter out,
                               OutputStream binaryOut,
                               String clientIp,
-                              Map<String, String> headers) throws IOException {
+                              Map<String, String> headers, 
+                              boolean shouldClose) throws IOException {
 
         boolean isHeadRequest = method.equalsIgnoreCase("HEAD");
 
@@ -82,12 +84,12 @@ public class StaticFileHandler {
 
         // Handle directories
         if (file.isDirectory()) {
-            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp, isHeadRequest, headers);
+            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp, isHeadRequest, headers, shouldClose);
             return;
         }
 
         // Serve file
-        serveFile(file, out, binaryOut, isHeadRequest, headers);
+        serveFile(file, out, binaryOut, isHeadRequest, headers, shouldClose);
         ServerLogger.logAccess(clientIp, method, requestPath, 200);
     }
 
@@ -102,20 +104,21 @@ public class StaticFileHandler {
                                         OutputStream binaryOut,
                                         String clientIp,
                                         boolean isHeadRequest,
-                                        Map<String, String> headers) throws IOException {
+                                        Map<String, String> headers,
+                                        boolean shouldClose) throws IOException {
         // Serve index file if exists
         // Try to serve index file
         if (location.getIndex() != null && !location.getIndex().isEmpty()) {
             File indexFile = new File(directory, location.getIndex());
             if (indexFile.exists() && indexFile.isFile()) {
-                serveFile(indexFile, out, binaryOut, isHeadRequest, headers);
+                serveFile(indexFile, out, binaryOut, isHeadRequest, headers, shouldClose);
                 ServerLogger.logAccess(clientIp, method, requestPath, 200);
                 return;
             }
         }
         // Show directory listing if enabled
         if (location.isDirectoryListingEnabled()) {
-            sendDirectoryListing(directory, out,isHeadRequest, headers);
+            sendDirectoryListing(directory, out, isHeadRequest, headers, shouldClose);
             ServerLogger.logAccess(clientIp, method, requestPath, 200);
         } else {
             sendError(out, 403, "Forbidden");
@@ -123,7 +126,7 @@ public class StaticFileHandler {
         }
     }
 
-    private static void sendDirectoryListing(File directory, PrintWriter out, boolean isHeadRequest, Map<String, String> headers) throws IOException {
+    private static void sendDirectoryListing(File directory, PrintWriter out, boolean isHeadRequest, Map<String, String> headers, boolean shouldClose) throws IOException {
 
 
         // Check 'If-Modified-Since' header and handle conditional-get for 304 Not Modified
@@ -144,6 +147,7 @@ public class StaticFileHandler {
                     out.print("HTTP/1.1 304 Not Modified\r\n");
                     out.print("Date: " + formatter.format(ZonedDateTime.now(ZoneId.of("GMT"))) + "\r\n");
                     out.print("Last-Modified: " + formatHttpDate(directory.lastModified()) + "\r\n");
+                    out.print(connectionHeader(shouldClose));
                     out.print("\r\n");
                     out.flush();
                     ServerLogger.logAccess(headers.get("Client-IP"), headers.get("Method"), headers.get("Request-Target"), 304);
@@ -185,6 +189,7 @@ public class StaticFileHandler {
         out.print("Content-Type: text/html\r\n");
         out.print("Content-Length: " + content.length + "\r\n");
         out.print("Last-Modified: " + formatHttpDate(directory.lastModified()) + "\r\n");
+        out.print(connectionHeader(shouldClose));
         out.print("\r\n");
         if (!isHeadRequest) {
             out.print(html);
@@ -201,8 +206,7 @@ public class StaticFileHandler {
         return (bytes / (1024 * 1024)) + " MB";
     }
 
-    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut ,boolean isHeadRequest, Map<String, String> headers) throws IOException {
-
+    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut, boolean isHeadRequest, Map<String, String> headers, boolean shouldClose) throws IOException {
 
         //check last modified header// Check 'If-Modified-Since' header and handle conditional-get for 304 Not Modified
         String ifModifiedSince = headers.get("If-Modified-Since");
@@ -220,6 +224,7 @@ public class StaticFileHandler {
                 if (fileLastModifiedMillis / 1000 <= clientMillis / 1000) {
                     out.print("HTTP/1.1 304 Not Modified\r\n");
                     out.print("Date: " + formatter.format(ZonedDateTime.now(ZoneId.of("GMT"))) + "\r\n");
+                    out.print(connectionHeader(shouldClose));
                     out.print("\r\n");
                     out.flush();
                     ServerLogger.logAccess(headers.get("Client-IP"),headers.get("Method"),headers.get("Request-Target"), 304);
@@ -241,6 +246,7 @@ public class StaticFileHandler {
         out.print("Content-Type: " + mimeType + "\r\n");
         out.print("Content-Length: " + fileSize + "\r\n");
         out.print("Last-Modified: " + formatHttpDate(lastModified) + "\r\n");
+        out.print(connectionHeader(shouldClose));
         out.print("Cache-Control: max-age=3600\r\n");
         out.print("\r\n");
         out.flush();
@@ -249,7 +255,7 @@ public class StaticFileHandler {
         if (!isHeadRequest) {
             // Send file content
             try (FileInputStream fis = new FileInputStream(file)) {
-                byte[] buffer = new byte[8192]; //TODO : Make this configurable and investigate why it is 8192
+                byte[] buffer = new byte[65536]; //TODO : Make this configurable and investigate why it is 8192
                 int bytesRead;
                 while ((bytesRead = fis.read(buffer)) != -1) {
                     binaryOut.write(buffer, 0, bytesRead);
@@ -313,6 +319,11 @@ public class StaticFileHandler {
         String canonicalPath = resolvedFile.getCanonicalPath();
         String rootPathCanonical = root.getCanonicalPath();
         return canonicalPath.startsWith(rootPathCanonical);
+    }
+
+
+    private static String connectionHeader(boolean shouldClose) {
+        return "Connection: " + (shouldClose ? "close" : "keep-alive") + "\r\n";
     }
 
 }

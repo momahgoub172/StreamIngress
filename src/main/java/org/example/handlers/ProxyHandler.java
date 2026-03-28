@@ -33,10 +33,11 @@ public class ProxyHandler {
      * @param out         PrintWriter for response headers
      * @param binaryOut   OutputStream for response body
      * @param clientIp    Client IP address for X-Forwarded-For
+     * @param shouldClose 
      */
     public static void handle(Location location, String requestPath, String method,
                               Map<String, String> headers, String body,
-                              PrintWriter out, OutputStream binaryOut, String clientIp) throws IOException {
+                              PrintWriter out, OutputStream binaryOut, String clientIp, boolean shouldClose) throws IOException {
 
         //Check health of backend server
         if (!HealthCheckRegistry.isHealthy(location.getProxyUrl())) {
@@ -86,12 +87,13 @@ public class ProxyHandler {
             Map<String, List<String>> responseHeaders = connection.getHeaderFields();
             for (Map.Entry<String, List<String>> entry : responseHeaders.entrySet()) {
                 String headerName = entry.getKey();
-                if (headerName != null && !headerName.equalsIgnoreCase("Transfer-Encoding")) {
+                if (headerName != null && !isHopByHopHeader(headerName) ) {
                     for (String headerValue : entry.getValue()) {
                         out.print(headerName + ": " + headerValue + "\r\n");
                     }
                 }
             }
+            out.print("Connection: " + (shouldClose ? "close" : "keep-alive") + "\r\n");
             out.print("\r\n");
             out.flush();
 
