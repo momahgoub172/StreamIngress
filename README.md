@@ -19,6 +19,7 @@ A small, HTTP server and reverse proxy built directly on top of raw TCP sockets.
   - Supports `GET` and `HEAD` for static content.
   - Optional **directory listing** (`directoryListingEnabled: true`).
   - Basic security: canonical path resolution + directory traversal protection.
+  - Zero-copy file responses to reduce CPU/memory copying.
   - Sends `Content-Type`, `Content-Length`, `Last-Modified`, and `Cache-Control` headers.
   - Supports conditional requests with `If-Modified-Since` / `304 Not Modified` for files and directory listings.
   - Proper `Connection` header handling for keep-alive support.
