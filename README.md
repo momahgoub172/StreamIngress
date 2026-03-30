@@ -142,6 +142,10 @@ Key ideas:
 - **Static server enhancements**
   - Range requests.
   - Configurable buffer sizes.
+  - **Future performance**:
+    - Cache small static files (e.g. under `1MB`) in memory to avoid repeated filesystem reads.
+    - Use optimized response header writing (fewer allocations / fewer writes) for better small-file throughput.
+    - Expected effect: large files stay fast via zero-copy, while small files can see dramatic latency/throughput improvements.
 
 - **Proxy enhancements**
   - Better `X-Forwarded-*` handling.
