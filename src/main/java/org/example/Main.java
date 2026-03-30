@@ -6,12 +6,13 @@ import org.example.config.Server;
 import org.example.config.ServerConfig;
 import org.example.handlers.ProxyHandler;
 import org.example.handlers.StaticFileHandler;
-import org.example.health.HealthChecker;
 import org.example.logging.ServerLogger;
 
 import java.io.*;
-import java.net.ServerSocket;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,16 +32,18 @@ public class Main {
         ServerLogger.init(config.getAccessLog(), config.getErrorLog());
         ServerLogger.logInfo("[Main] Server starting on port " + port);
 
-        // Keep the server socket open for the lifetime of the process.
-        // Only client sockets should be closed per request/connection.
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
+        // ServerSocketChannel yields SocketChannel on accept so static files can use
+        // FileChannel.transferTo (zero-copy / sendfile on Linux).
+        try (ServerSocketChannel serverChannel = ServerSocketChannel.open()) {
+            serverChannel.bind(new InetSocketAddress(port));
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 while (true) {
-                    Socket socket = serverSocket.accept();
+                    SocketChannel clientChannel = serverChannel.accept();
                     executor.submit(() -> {
-                        try (socket) {
+                        Socket socket = clientChannel.socket();
+                        try (clientChannel) {
                             // TODO: Make this configurable
-                            socket.setSoTimeout(5_000);
+                            socket.setSoTimeout(30_000);
 
                             String clientIp = socket.getInetAddress().getHostAddress();
                             ServerLogger.logInfo("[Main] Client connected from " + clientIp);
@@ -66,7 +69,6 @@ public class Main {
                                         break;
                                     }
                                     System.out.println("[debug] got request #" + requestsCount + " " + request.requestLine.Method + " " + request.requestLine.RequestTarget);
-
                                     method = request.requestLine.Method;
                                     requestPath = request.requestLine.RequestTarget;
                                     int q = requestPath.indexOf('?');
@@ -78,8 +80,9 @@ public class Main {
 
                                     Location location = findMatchingLocation(server.getLocations(), requestPath);
                                     if (location != null && location.isStatic()) {
-                                        StaticFileHandler.handle(location, requestPath, method, out, rawOut, clientIp,
-                                                request.headers,shouldClose);
+                                        StaticFileHandler.handle(location, requestPath, method, out, rawOut,
+                                                clientChannel, clientIp,
+                                                request.headers, shouldClose);
                                     } else if (location != null && location.isProxy()) {
                                         ProxyHandler.handle(location, requestPath, method,
                                                 request.headers, request.body, out, rawOut, clientIp,shouldClose);

@@ -4,7 +4,12 @@ import org.example.config.Location;
 import org.example.logging.ServerLogger;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileTime;
 import java.text.SimpleDateFormat;
 import java.time.ZoneId;
@@ -61,8 +66,9 @@ public class StaticFileHandler {
                               String method,
                               PrintWriter out,
                               OutputStream binaryOut,
+                              SocketChannel socketChannel,
                               String clientIp,
-                              Map<String, String> headers, 
+                              Map<String, String> headers,
                               boolean shouldClose) throws IOException {
 
         boolean isHeadRequest = method.equalsIgnoreCase("HEAD");
@@ -84,12 +90,12 @@ public class StaticFileHandler {
 
         // Handle directories
         if (file.isDirectory()) {
-            handleDirectory(location, file, requestPath, method, out, binaryOut, clientIp, isHeadRequest, headers, shouldClose);
+            handleDirectory(location, file, requestPath, method, out, binaryOut, socketChannel, clientIp, isHeadRequest, headers, shouldClose);
             return;
         }
 
         // Serve file
-        serveFile(file, out, binaryOut, isHeadRequest, headers, shouldClose);
+        serveFile(file, out, binaryOut, socketChannel, isHeadRequest, headers, shouldClose);
         ServerLogger.logAccess(clientIp, method, requestPath, 200);
     }
 
@@ -102,6 +108,7 @@ public class StaticFileHandler {
                                         String method,
                                         PrintWriter out,
                                         OutputStream binaryOut,
+                                        SocketChannel socketChannel,
                                         String clientIp,
                                         boolean isHeadRequest,
                                         Map<String, String> headers,
@@ -111,7 +118,7 @@ public class StaticFileHandler {
         if (location.getIndex() != null && !location.getIndex().isEmpty()) {
             File indexFile = new File(directory, location.getIndex());
             if (indexFile.exists() && indexFile.isFile()) {
-                serveFile(indexFile, out, binaryOut, isHeadRequest, headers, shouldClose);
+                serveFile(indexFile, out, binaryOut, socketChannel, isHeadRequest, headers, shouldClose);
                 ServerLogger.logAccess(clientIp, method, requestPath, 200);
                 return;
             }
@@ -206,7 +213,8 @@ public class StaticFileHandler {
         return (bytes / (1024 * 1024)) + " MB";
     }
 
-    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut, boolean isHeadRequest, Map<String, String> headers, boolean shouldClose) throws IOException {
+    private static void serveFile(File file, PrintWriter out, OutputStream binaryOut, SocketChannel socketChannel,
+                                  boolean isHeadRequest, Map<String, String> headers, boolean shouldClose) throws IOException {
 
         //check last modified header// Check 'If-Modified-Since' header and handle conditional-get for 304 Not Modified
         String ifModifiedSince = headers.get("If-Modified-Since");
@@ -241,7 +249,40 @@ public class StaticFileHandler {
         String mimeType = getMimeType(file.getName());
         long fileSize = file.length();
         long lastModified = file.lastModified();
-        // Send response headers
+
+        if (socketChannel != null) {
+            // 200/HEAD: headers + optional body via SocketChannel only (enables FileChannel.transferTo / sendfile).
+            StringBuilder headerText = new StringBuilder();
+            headerText.append("HTTP/1.1 200 OK\r\n");
+            headerText.append("Content-Type: ").append(mimeType).append("\r\n");
+            headerText.append("Content-Length: ").append(fileSize).append("\r\n");
+            headerText.append("Last-Modified: ").append(formatHttpDate(lastModified)).append("\r\n");
+            headerText.append(connectionHeader(shouldClose));
+            headerText.append("Cache-Control: max-age=3600\r\n");
+            headerText.append("\r\n");
+            byte[] headerBytes = headerText.toString().getBytes(StandardCharsets.UTF_8);
+            writeFully(socketChannel, ByteBuffer.wrap(headerBytes));
+
+            if (!isHeadRequest) {
+                try (FileChannel fc = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
+                    long position = 0;
+                    long remaining = fileSize;
+                    while (remaining > 0) {
+                        long n = fc.transferTo(position, remaining, socketChannel);
+                        if (n == 0) {
+                            Thread.yield();
+                            continue;
+                        }
+                        position += n;
+                        remaining -= n;
+                    }
+                }
+                System.out.println("Served: " + file.getPath() + " (" + fileSize + " bytes)");
+            }
+            return;
+        }
+
+        // Fallback: no SocketChannel (should not occur from Main)
         out.print("HTTP/1.1 200 OK\r\n");
         out.print("Content-Type: " + mimeType + "\r\n");
         out.print("Content-Length: " + fileSize + "\r\n");
@@ -251,11 +292,9 @@ public class StaticFileHandler {
         out.print("\r\n");
         out.flush();
 
-
         if (!isHeadRequest) {
-            // Send file content
             try (FileInputStream fis = new FileInputStream(file)) {
-                byte[] buffer = new byte[65536]; //TODO : Make this configurable and investigate why it is 8192
+                byte[] buffer = new byte[65536];
                 int bytesRead;
                 while ((bytesRead = fis.read(buffer)) != -1) {
                     binaryOut.write(buffer, 0, bytesRead);
@@ -263,6 +302,12 @@ public class StaticFileHandler {
                 binaryOut.flush();
             }
             System.out.println("Served: " + file.getPath() + " (" + fileSize + " bytes)");
+        }
+    }
+
+    private static void writeFully(SocketChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            channel.write(buffer);
         }
     }
 
